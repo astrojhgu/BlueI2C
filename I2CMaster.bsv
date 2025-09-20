@@ -1,4 +1,5 @@
 import StmtFSM::*;
+import GetPut::*;
 interface I2CMasterWires;
 (*always_enabled,always_ready*)
     method Bit#(1) scl_out;
@@ -11,7 +12,7 @@ interface I2CMasterWires;
 endinterface
 
 
-
+/*
 typedef enum{
     Start,
     Write,
@@ -20,11 +21,29 @@ typedef enum{
     PutAck,
     Stop
 } Cmd deriving(Eq, FShow, Bits);
+*/
+
+typedef union tagged{
+    void Start;
+    Bit#(8) Write;
+    void Read;
+    void GetAck;
+    void PutAck;
+    void Stop;
+}Request deriving(Eq, FShow, Bits);
+
+typedef union tagged{
+    void Ack;
+    void NAck;
+    Bit#(8) Received;
+}Response deriving(Eq, FShow, Bits);
 
 
 interface I2CMasterOperation;
-    method Action put_cmd(Cmd cmd, Bit#(8) payload);
-    method Bit#(8) get_result;    
+    //method Action put_cmd(Request req);
+    //method Bit#(8) get_result;
+    interface Put#(Request) request;
+    interface Get#(Response) response;
     (*always_enabled,always_ready*)
     method Bool is_busy;
 endinterface
@@ -46,7 +65,8 @@ module mkI2CMaster#(Integer log2_scl2clk_ratio)(I2CMaster);
     Reg#(Bit#(1)) oe_state<-mkReg(1);
     Reg#(Bit#(1)) sda_in_state <- mkReg(1);
     Reg#(Bit#(1)) last_bit_in<-mkReg(1);
-    Reg#(Cmd) last_cmd<-mkReg(?);
+    
+    Reg#(Request) last_req<-mkReg(?);
 
     
     
@@ -163,32 +183,52 @@ module mkI2CMaster#(Integer log2_scl2clk_ratio)(I2CMaster);
     Bool idle=send_fsm.done()&&read_fsm.done()&&start_fsm.done()&&get_ack_fsm.done()&&put_ack_fsm.done()&&stop_fsm.done();
     
     interface I2CMasterOperation ops;
-        method Action put_cmd(Cmd cmd, Bit#(8) payload) if (idle);
-            
-            case (cmd) matches
-                Start: start_fsm.start();
-                Write: begin
-                    last_cmd<= Write;
-                    out_buf <= payload;
-                    send_fsm.start();
-                end
-                Read: begin
-                    last_cmd<=Read;
-                    read_fsm.start();
-                end
-                GetAck: get_ack_fsm.start();
-                PutAck: put_ack_fsm.start();
-                Stop: stop_fsm.start();
-            endcase
-        endmethod
+        interface Put request;
+            method Action put(Request req) if (idle);
+                //last_cmd<=cmd;
+                case (req) matches
+                    tagged Start : begin
+                        start_fsm.start();
+                    end
+                    tagged Write .p: begin
+                        last_req<=req;
+                        out_buf <= p;
+                        send_fsm.start();
+                    end
+                    tagged Read: begin
+                        last_req<=req;
+                        read_fsm.start();
+                    end
+                    tagged GetAck: begin
+                        get_ack_fsm.start();
+                    end
+                    tagged PutAck: begin
+                        put_ack_fsm.start();
+                    end
+                    tagged Stop: begin
+                        stop_fsm.start();
+                    end
 
-        method Bit#(8) get_result if(last_cmd==Write||last_cmd==Read);
-            case (last_cmd) matches       
-                Write: return extend(ack);
-                Read: return in_buf;
-                default: return 0;
-            endcase
-        endmethod
+                endcase
+            endmethod
+        endinterface
+
+
+        interface Get response;
+            method ActionValue#(Response) get() if(
+                case (last_req) matches
+                    tagged Write .p: True;
+                    tagged Read : True;
+                    default: False;
+                endcase
+            );
+                return case (last_req) matches
+                    tagged Write .p: ack==1?(tagged Ack):(tagged NAck);
+                    tagged Read: tagged Received in_buf;
+                    default: tagged NAck;
+                endcase;
+            endmethod
+        endinterface
         method Bool is_busy=!idle;
     endinterface
 
@@ -227,11 +267,14 @@ module mkI2CScanner(I2CScanner);
     mkAutoFSM(
         seq
             while(True)seq
-                i2cm.ops.put_cmd(Start,0);
-                i2cm.ops.put_cmd(Write,{current_addr,0});
-                i2cm.ops.put_cmd(GetAck,0);
-                i2cm.ops.put_cmd(Stop, 0);
-                if(i2cm.ops.get_result!=0) _last_responsed<=current_addr;
+                i2cm.ops.request.put(tagged Start);
+                i2cm.ops.request.put(tagged Write ({current_addr,0}));
+                i2cm.ops.request.put(tagged GetAck);
+                i2cm.ops.request.put(tagged Stop);
+                action
+                    let x<-i2cm.ops.response.get();
+                    if (x==tagged Ack) _last_responsed<=current_addr;
+                endaction
                 current_addr<=current_addr+1;
             endseq
         endseq
@@ -251,6 +294,35 @@ interface LM75Reader;
     method Action slave_addr(Bit#(7) a);
 endinterface
 
+function Bit#(8) int4ToChar(Bit#(4) x);
+    return case (x) matches
+        0: fromInteger(charToInteger("0"));
+        1: fromInteger(charToInteger("1"));
+        2: fromInteger(charToInteger("2"));
+        3: fromInteger(charToInteger("3"));
+        4: fromInteger(charToInteger("4"));
+        5: fromInteger(charToInteger("5"));
+        6: fromInteger(charToInteger("6"));
+        7: fromInteger(charToInteger("7"));
+        8: fromInteger(charToInteger("8"));
+        9: fromInteger(charToInteger("9"));
+        4'ha: fromInteger(charToInteger("a"));
+        4'hb: fromInteger(charToInteger("b"));
+        4'hc: fromInteger(charToInteger("c"));
+        4'hd: fromInteger(charToInteger("d"));
+        4'he: fromInteger(charToInteger("e"));
+        4'hf: fromInteger(charToInteger("f"));
+    endcase;
+endfunction
+
+function Bit#(16) int8ToString(Bit#(8) x);
+    return {int4ToChar(x[7:4]), int4ToChar(x[3:0])};
+endfunction
+
+function Bit#(32) int16ToString(Bit#(16) x);
+    return {int8ToString(x[15:8]), int8ToString(x[7:0])};
+endfunction
+
 
 (*synthesize*)
 module mkLM75Reader(LM75Reader);
@@ -261,32 +333,34 @@ module mkLM75Reader(LM75Reader);
     mkAutoFSM(
         seq
             while(True)seq
-                i2cm.ops.put_cmd(Start,0);
-                i2cm.ops.put_cmd(Write,{addr,0});
-                i2cm.ops.put_cmd(GetAck,0);
+                i2cm.ops.request.put(tagged Start);
+                i2cm.ops.request.put(tagged Write ({addr,0}));
+                i2cm.ops.request.put(tagged GetAck);
 
                 
-                i2cm.ops.put_cmd(Write,8'h00);
-                i2cm.ops.put_cmd(GetAck,0);
+                i2cm.ops.request.put(tagged Write 8'h00);
+                i2cm.ops.request.put(tagged GetAck);
 
-                i2cm.ops.put_cmd(Start,0);
-                i2cm.ops.put_cmd(Write,{addr,1});
-                i2cm.ops.put_cmd(GetAck,0);
+                i2cm.ops.request.put(tagged Start);
+                i2cm.ops.request.put(tagged Write ({addr,1}));
+                i2cm.ops.request.put(tagged GetAck);
                 
-                //i2cm.ops.put_cmd(Stop, 0);
-                i2cm.ops.put_cmd(Read,0);
-                i2cm.ops.put_cmd(PutAck,0);
+                //i2cm.ops.request.put(Stop, 0);
+                i2cm.ops.request.put(tagged Read);
+                i2cm.ops.request.put(tagged PutAck);
                 action 
-                    let x=i2cm.ops.get_result;
-                    _value[15:8]<=x;
+                    let x1<- i2cm.ops.response.get();
+                    case (x1) matches
+                        tagged Received .x :_value[15:8]<=x;
+                    endcase
                 endaction
-                i2cm.ops.put_cmd(Read,0);
-                i2cm.ops.put_cmd(PutAck,0);
+                i2cm.ops.request.put(tagged Read);
+                i2cm.ops.request.put(tagged PutAck);
                 action 
-                    let x=i2cm.ops.get_result;
-                    _value[7:0]<=x;
+                    let x2<-i2cm.ops.response.get();
+                    _value[7:0]<=x2.Received;
                 endaction
-                i2cm.ops.put_cmd(Stop, 0);
+                i2cm.ops.request.put(tagged Stop);
             endseq
         endseq
     );

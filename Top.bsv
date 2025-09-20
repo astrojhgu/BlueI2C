@@ -35,24 +35,24 @@ module mkTop(Empty);
         seq
             $dumpon;
             
-            i2cm.ops.put_cmd(Start,0);
-            i2cm.ops.put_cmd(Write,{7'h33,0});
-            i2cm.ops.put_cmd(GetAck,0);
-            i2cm.ops.put_cmd(Stop, 0);
-            i2cm.ops.put_cmd(Start, 0);
-            i2cm.ops.put_cmd(Write, {7'h32,0});
-            i2cm.ops.put_cmd(GetAck, 0);
-            i2cm.ops.put_cmd(Stop, 0);
+            i2cm.ops.request.put(tagged Start);
+            i2cm.ops.request.put(tagged Write ({7'h33,0}));
+            i2cm.ops.request.put(tagged GetAck);
+            i2cm.ops.request.put(tagged Stop);
+            i2cm.ops.request.put(tagged Start);
+            i2cm.ops.request.put(tagged Write ({7'h32,0}));
+            i2cm.ops.request.put(tagged GetAck);
+            i2cm.ops.request.put(tagged Stop);
 
-            i2cm.ops.put_cmd(Start,0);
-            i2cm.ops.put_cmd(Write,{7'h33,0});
-            i2cm.ops.put_cmd(GetAck, 0);
-            i2cm.ops.put_cmd(Stop, 0);
+            i2cm.ops.request.put(tagged Start);
+            i2cm.ops.request.put(tagged Write ({7'h33,0}));
+            i2cm.ops.request.put(tagged GetAck);
+            i2cm.ops.request.put(tagged Stop);
 
-            i2cm.ops.put_cmd(Start, 0);
-            i2cm.ops.put_cmd(Write,{7'h32,0});
-            i2cm.ops.put_cmd(GetAck,0);
-            i2cm.ops.put_cmd(Stop, 0);
+            i2cm.ops.request.put(tagged Start);
+            i2cm.ops.request.put(tagged Write ({7'h32,0}));
+            i2cm.ops.request.put(tagged GetAck);
+            i2cm.ops.request.put(tagged Stop);
             //repeat(500) noAction;
             //i2cm.ops.start(False);
             //while(i2cm.wires.is_busy) noAction;
