@@ -4,7 +4,7 @@ BSC     = bsc
 SRC     = Top.bsv I2CMaster.bsv I2CSlave.bsv
 
 # 搜索路径（含BlueAXI、BlueLib等）
-BSCPATH = -p "%/Libraries:.:../BlueAXI/src:../BlueLib/src"
+BSCPATH = -p "%/Libraries:.:../BlueAXI/src:../BlueLib/src:../BlueUtils"
 
 # 输出目录
 OUTDIR  = build

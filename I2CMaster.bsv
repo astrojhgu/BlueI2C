@@ -1,5 +1,6 @@
 import StmtFSM::*;
 import GetPut::*;
+import BlueUtils::*;
 interface I2CMasterWires;
 (*always_enabled,always_ready*)
     method Bit#(1) scl_out;
@@ -29,6 +30,7 @@ typedef union tagged{
     void Read;
     void GetAck;
     void PutAck;
+    void PutNAck;
     void Stop;
 }Request deriving(Eq, FShow, Bits);
 
@@ -162,6 +164,12 @@ module mkI2CMaster#(Integer log2_scl2clk_ratio)(I2CMaster);
         endseq
     );
 
+    FSM put_nack_fsm<-mkFSM(
+        seq
+            send_bit(1);
+        endseq
+    );
+
     FSM stop_fsm<-mkFSM(
         seq
             repeat(1<<(log2_scl2clk_ratio-2)) action
@@ -180,7 +188,13 @@ module mkI2CMaster#(Integer log2_scl2clk_ratio)(I2CMaster);
 
     
 
-    Bool idle=send_fsm.done()&&read_fsm.done()&&start_fsm.done()&&get_ack_fsm.done()&&put_ack_fsm.done()&&stop_fsm.done();
+    Bool idle=  send_fsm.done()&&
+                read_fsm.done()&&
+                start_fsm.done()&&
+                get_ack_fsm.done()&&
+                put_ack_fsm.done()&&
+                put_nack_fsm.done()&&
+                stop_fsm.done();
     
     interface I2CMasterOperation ops;
         interface Put request;
@@ -204,6 +218,9 @@ module mkI2CMaster#(Integer log2_scl2clk_ratio)(I2CMaster);
                     end
                     tagged PutAck: begin
                         put_ack_fsm.start();
+                    end
+                    tagged PutNAck: begin
+                        put_nack_fsm.start();
                     end
                     tagged Stop: begin
                         stop_fsm.start();
@@ -293,35 +310,6 @@ interface LM75Reader;
     (*always_enabled,always_ready*)
     method Action slave_addr(Bit#(7) a);
 endinterface
-
-function Bit#(8) int4ToChar(Bit#(4) x);
-    return case (x) matches
-        0: fromInteger(charToInteger("0"));
-        1: fromInteger(charToInteger("1"));
-        2: fromInteger(charToInteger("2"));
-        3: fromInteger(charToInteger("3"));
-        4: fromInteger(charToInteger("4"));
-        5: fromInteger(charToInteger("5"));
-        6: fromInteger(charToInteger("6"));
-        7: fromInteger(charToInteger("7"));
-        8: fromInteger(charToInteger("8"));
-        9: fromInteger(charToInteger("9"));
-        4'ha: fromInteger(charToInteger("a"));
-        4'hb: fromInteger(charToInteger("b"));
-        4'hc: fromInteger(charToInteger("c"));
-        4'hd: fromInteger(charToInteger("d"));
-        4'he: fromInteger(charToInteger("e"));
-        4'hf: fromInteger(charToInteger("f"));
-    endcase;
-endfunction
-
-function Bit#(16) int8ToString(Bit#(8) x);
-    return {int4ToChar(x[7:4]), int4ToChar(x[3:0])};
-endfunction
-
-function Bit#(32) int16ToString(Bit#(16) x);
-    return {int8ToString(x[15:8]), int8ToString(x[7:0])};
-endfunction
 
 
 (*synthesize*)
